@@ -3,7 +3,14 @@ import io from 'socket.io-client';
 
 // Live Production Backend Server on Render
 const BACKEND_URL = 'https://smartcollab-backend-idh4.onrender.com';
-const socket = io(BACKEND_URL);
+
+// Socket connection with explicit transports and reconnection policy
+const socket = io(BACKEND_URL, {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000,
+});
 
 export default function App() {
   const [hasEntered, setHasEntered] = useState(false);
@@ -33,7 +40,7 @@ export default function App() {
     socket.on('task_updated', (data) => {
       const { taskId, newStatus, updatedBy } = data;
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-      setToast(`${updatedBy} moved a task to ${newStatus.replace('_', ' ')}!`);
+      setToast(`${updatedBy || 'Someone'} moved a task to ${newStatus.replace('_', ' ')}!`);
       setTimeout(() => setToast(null), 3500);
     });
 
@@ -51,16 +58,24 @@ export default function App() {
   }, []);
 
   const moveTask = (taskId, newStatus) => {
+    // 1. Optimistic local UI update
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
     setToast(`You moved task to ${newStatus.replace('_', ' ')}!`);
     setTimeout(() => setToast(null), 3000);
 
-    // Broadcast change via WebSocket
+    // 2. Persist update in database via API
+    fetch(`${BACKEND_URL}/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    }).catch(err => console.error("Error updating task status:", err));
+
+    // 3. Broadcast real-time change via WebSocket
     socket.emit('task_moved', { 
       workspaceId: 'main-ws', 
       taskId, 
       newStatus, 
-      user: 'Manikya' 
+      updatedBy: 'Manikya' 
     });
   };
 
@@ -75,13 +90,21 @@ export default function App() {
       assignee: newAssignee
     };
 
+    // 1. Local state update
     setTasks(prev => [...prev, newTask]);
     setShowModal(false);
     setNewTitle('');
     setToast(`Added task: "${newTask.title}"`);
     setTimeout(() => setToast(null), 3000);
 
-    // Broadcast new task to other connected users
+    // 2. Persist task to database via API
+    fetch(`${BACKEND_URL}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newTask)
+    }).catch(err => console.error("Error creating task:", err));
+
+    // 3. Broadcast new task to connected peers
     socket.emit('task_added', { workspaceId: 'main-ws', task: newTask });
   };
 
