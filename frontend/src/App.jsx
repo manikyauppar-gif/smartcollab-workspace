@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import io from 'socket.io-client';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 const BACKEND_URL = 'https://smartcollab-backend-idh4.onrender.com';
 
@@ -12,9 +11,8 @@ const socket = io(BACKEND_URL, {
 });
 
 export default function App() {
-  // Always default user to null on initial load so login screen appears
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => localStorage.getItem('smartcollab_token') || '');
+  const [token, setToken] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
   
@@ -34,18 +32,6 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newAssignee, setNewAssignee] = useState('Manikya');
-
-  // Load saved session on mount if available
-  useEffect(() => {
-    const saved = localStorage.getItem('smartcollab_user');
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem('smartcollab_user');
-      }
-    }
-  }, []);
 
   // Fetch initial tasks & subscribe to Socket events
   useEffect(() => {
@@ -99,8 +85,6 @@ export default function App() {
 
       setUser(data.user);
       setToken(data.token);
-      localStorage.setItem('smartcollab_user', JSON.stringify(data.user));
-      localStorage.setItem('smartcollab_token', data.token);
       setToast(`Welcome, ${data.user.name}! (${data.user.role})`);
       setTimeout(() => setToast(null), 3000);
     } catch (err) {
@@ -111,30 +95,20 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setToken('');
-    localStorage.removeItem('smartcollab_user');
-    localStorage.removeItem('smartcollab_token');
   };
 
-  // Drag and Drop Handler
-  const onDragEnd = (result) => {
-    const { destination, source, draggableId } = result;
-
-    if (!destination) return;
-    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
-
+  const moveTask = (taskId, newStatus) => {
     if (user?.role === 'VIEWER') {
-      setToast('⚠️ Viewers cannot move tasks.');
+      setToast('⚠️ Viewers cannot modify tasks.');
       setTimeout(() => setToast(null), 3000);
       return;
     }
 
-    const newStatus = destination.droppableId;
-
-    setTasks(prev => prev.map(t => t.id === draggableId ? { ...t, status: newStatus } : t));
-    setToast(`Task moved to ${newStatus.replace('_', ' ')}!`);
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    setToast(`You moved task to ${newStatus.replace('_', ' ')}!`);
     setTimeout(() => setToast(null), 3000);
 
-    fetch(`${BACKEND_URL}/api/tasks/${draggableId}`, {
+    fetch(`${BACKEND_URL}/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
@@ -142,9 +116,9 @@ export default function App() {
 
     socket.emit('task_moved', { 
       workspaceId: 'main-ws', 
-      taskId: draggableId, 
+      taskId, 
       newStatus, 
-      updatedBy: user?.name || 'User' 
+      updatedBy: user?.name || 'Manikya' 
     });
   };
 
@@ -190,29 +164,6 @@ export default function App() {
       overflow: 'hidden',
       padding: '24px'
     }}>
-      <style>{`
-        @keyframes floatSlow {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        @keyframes floatReverse {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(10px); }
-        }
-        .float-card-1 { animation: floatSlow 6s ease-in-out infinite; }
-        .float-card-2 { animation: floatReverse 7s ease-in-out infinite; }
-      `}</style>
-
-      {/* Ambient Glows */}
-      <div style={{
-        position: 'absolute', top: '-100px', left: '-100px', width: '500px', height: '500px',
-        backgroundColor: '#FCE7F3', borderRadius: '50%', filter: 'blur(100px)', opacity: 0.8, pointerEvents: 'none'
-      }} />
-      <div style={{
-        position: 'absolute', bottom: '-100px', right: '-100px', width: '600px', height: '600px',
-        backgroundColor: '#E0F2FE', borderRadius: '50%', filter: 'blur(110px)', opacity: 0.8, pointerEvents: 'none'
-      }} />
-
       {/* Toast Notification */}
       {toast && (
         <div style={{
@@ -284,8 +235,7 @@ export default function App() {
                   style={{
                     padding: '10px 20px', border: 'none',
                     background: 'linear-gradient(90deg, #A78BFA, #F472B6)',
-                    color: 'white', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold',
-                    boxShadow: '0 4px 12px rgba(167, 139, 250, 0.3)'
+                    color: 'white', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold'
                   }}
                 >
                   Create Task
@@ -300,50 +250,18 @@ export default function App() {
         /* ==================== ENTRANCE PORTAL & AUTH FORM ==================== */
         <div style={{
           minHeight: '88vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          position: 'relative', maxWidth: '1280px', margin: '0 auto'
+          maxWidth: '1280px', margin: '0 auto'
         }}>
-          {/* FLOATING DECORATIONS */}
-          <div className="float-card-1" style={{
-            position: 'absolute', left: '20px', top: '20%', width: '260px',
-            backgroundColor: 'rgba(255, 253, 249, 0.85)', border: '1px solid #F5EBE0',
-            padding: '20px', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
-            backdropFilter: 'blur(12px)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '20px', padding: '8px', backgroundColor: '#E0F2FE', borderRadius: '12px' }}>⚡</span>
-              <div>
-                <h4 style={{ margin: 0, fontSize: '14px', color: '#1E293B', fontWeight: 'bold' }}>Real-Time Engine</h4>
-                <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>Socket.io Event Bus</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="float-card-2" style={{
-            position: 'absolute', right: '20px', top: '22%', width: '250px',
-            backgroundColor: 'rgba(255, 253, 249, 0.85)', border: '1px solid #F5EBE0',
-            padding: '20px', borderRadius: '24px', boxShadow: '0 10px 30px rgba(0,0,0,0.03)',
-            backdropFilter: 'blur(12px)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '20px', padding: '8px', backgroundColor: '#D1FAE5', borderRadius: '12px' }}>🛡️</span>
-              <div>
-                <h4 style={{ margin: 0, fontSize: '14px', color: '#1E293B', fontWeight: 'bold' }}>RBAC Security</h4>
-                <p style={{ margin: 0, fontSize: '12px', color: '#64748B' }}>JWT Protected</p>
-              </div>
-            </div>
-          </div>
-
-          {/* MAIN AUTH CARD */}
           <div style={{
-            backgroundColor: 'rgba(255, 253, 249, 0.95)', backdropFilter: 'blur(20px)',
+            backgroundColor: 'rgba(255, 253, 249, 0.95)',
             border: '1px solid #F5EBE0', padding: '40px 36px', borderRadius: '36px',
             boxShadow: '0 25px 50px rgba(0,0,0,0.05)', textAlign: 'center',
-            maxWidth: '420px', width: '100%', position: 'relative', zIndex: 10
+            maxWidth: '420px', width: '100%'
           }}>
             <div style={{
               width: '60px', height: '60px', background: 'linear-gradient(135deg, #FCE7F3, #E0F2FE)',
               borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 20px auto', fontSize: '28px', boxShadow: '0 8px 16px rgba(0,0,0,0.04)'
+              margin: '0 auto 20px auto', fontSize: '28px'
             }}>
               ✨
             </div>
@@ -423,7 +341,7 @@ export default function App() {
                 style={{
                   width: '100%', padding: '14px', background: 'linear-gradient(90deg, #A78BFA, #F472B6, #38BDF8)',
                   color: 'white', border: 'none', borderRadius: '16px', fontWeight: 'bold', fontSize: '14px',
-                  cursor: 'pointer', boxShadow: '0 8px 20px rgba(167, 139, 250, 0.35)', marginBottom: '16px'
+                  cursor: 'pointer', marginBottom: '16px'
                 }}
               >
                 {isRegistering ? 'Create Account 🚀' : 'Unlock Workspace 🗝️'}
@@ -440,13 +358,12 @@ export default function App() {
         </div>
       ) : (
         /* ==================== MAIN WORKSPACE DASHBOARD ==================== */
-        <div style={{ maxWidth: '1100px', margin: '0 auto', position: 'relative', zIndex: 10 }}>
+        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
           {/* Header */}
           <header style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             backgroundColor: 'rgba(255, 253, 249, 0.85)', padding: '20px 28px',
-            borderRadius: '24px', border: '1px solid #F5EBE0', marginBottom: '32px',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.02)'
+            borderRadius: '24px', border: '1px solid #F5EBE0', marginBottom: '32px'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
               <div style={{ padding: '12px', backgroundColor: '#FCE7F3', borderRadius: '16px', fontSize: '22px' }}>
@@ -467,8 +384,7 @@ export default function App() {
                   style={{
                     border: 'none', background: 'linear-gradient(90deg, #A78BFA, #F472B6)',
                     color: 'white', padding: '8px 16px', borderRadius: '16px',
-                    cursor: 'pointer', fontWeight: 'bold', fontSize: '13px',
-                    boxShadow: '0 4px 12px rgba(167, 139, 250, 0.3)'
+                    cursor: 'pointer', fontWeight: 'bold', fontSize: '13px'
                   }}
                 >
                   + Add Task
@@ -491,85 +407,61 @@ export default function App() {
             </div>
           </header>
 
-          {/* Drag and Drop Kanban Context */}
-          <DragDropContext onDragEnd={onDragEnd}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-              {[
-                { title: 'To Do', status: 'TODO', bg: '#FEF3C7', color: '#92400E' },
-                { title: 'In Progress', status: 'IN_PROGRESS', bg: '#E0F2FE', color: '#075985' },
-                { title: 'Completed', status: 'DONE', bg: '#D1FAE5', color: '#065F46' }
-              ].map(col => {
-                const colTasks = tasks.filter(t => t.status === col.status);
+          {/* Kanban Columns */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+            {[
+              { title: 'To Do', status: 'TODO', bg: '#FEF3C7', color: '#92400E' },
+              { title: 'In Progress', status: 'IN_PROGRESS', bg: '#E0F2FE', color: '#075985' },
+              { title: 'Completed', status: 'DONE', bg: '#D1FAE5', color: '#065F46' }
+            ].map(col => (
+              <div key={col.status} style={{
+                backgroundColor: 'rgba(255, 253, 249, 0.75)', border: '1px solid #F5EBE0',
+                padding: '24px', borderRadius: '28px', minHeight: '450px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <span style={{
+                    padding: '6px 14px', borderRadius: '14px', backgroundColor: col.bg, color: col.color,
+                    fontSize: '12px', fontWeight: 'bold'
+                  }}>
+                    {col.title}
+                  </span>
+                  <span style={{ fontSize: '12px', color: '#94A3B8', fontWeight: '600' }}>
+                    {tasks.filter(t => t.status === col.status).length} tasks
+                  </span>
+                </div>
 
-                return (
-                  <Droppable key={col.status} droppableId={col.status}>
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        style={{
-                          backgroundColor: snapshot.isDraggingOver ? '#F1F5F9' : 'rgba(255, 253, 249, 0.75)',
-                          border: '1px solid #F5EBE0',
-                          padding: '24px', borderRadius: '28px', minHeight: '450px',
-                          transition: 'background-color 0.2s ease'
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                          <span style={{
-                            padding: '6px 14px', borderRadius: '14px', backgroundColor: col.bg, color: col.color,
-                            fontSize: '12px', fontWeight: 'bold'
-                          }}>
-                            {col.title}
-                          </span>
-                          <span style={{ fontSize: '12px', color: '#94A3B8', fontWeight: '600' }}>
-                            {colTasks.length} tasks
-                          </span>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', minHeight: '350px' }}>
-                          {colTasks.map((task, index) => (
-                            <Draggable key={task.id} draggableId={task.id} index={index} isDragDisabled={user.role === 'VIEWER'}>
-                              {(provided, snapshot) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  style={{
-                                    backgroundColor: '#FFFFFF',
-                                    border: '1px solid #F5EBE0',
-                                    padding: '18px',
-                                    borderRadius: '20px',
-                                    boxShadow: snapshot.isDragging 
-                                      ? '0 15px 30px rgba(0,0,0,0.15)' 
-                                      : '0 4px 12px rgba(0,0,0,0.02)',
-                                    cursor: user.role === 'VIEWER' ? 'not-allowed' : 'grab',
-                                    ...provided.draggableProps.style
-                                  }}
-                                >
-                                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#1E293B', fontWeight: '600' }}>
-                                    {task.title}
-                                  </h4>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748B' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                      👤 {task.assignee}
-                                    </span>
-                                    <span style={{ fontSize: '10px', backgroundColor: '#F1F5F9', padding: '4px 8px', borderRadius: '8px', color: '#64748B' }}>
-                                      ⋮⋮ Drag
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
-                          {provided.placeholder}
-                        </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {tasks.filter(t => t.status === col.status).map(task => (
+                    <div 
+                      key={task.id}
+                      style={{
+                        backgroundColor: '#FFFFFF', border: '1px solid #F5EBE0', padding: '18px',
+                        borderRadius: '20px', boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#1E293B', fontWeight: '600' }}>{task.title}</h4>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748B' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          👤 {task.assignee}
+                        </span>
+                        {col.status !== 'DONE' && user.role !== 'VIEWER' && (
+                          <button 
+                            onClick={() => moveTask(task.id, col.status === 'TODO' ? 'IN_PROGRESS' : 'DONE')}
+                            style={{
+                              border: 'none', backgroundColor: '#F3E8FF', color: '#6B21A8',
+                              padding: '6px 14px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold'
+                            }}
+                          >
+                            Move ➔
+                          </button>
+                        )}
                       </div>
-                    )}
-                  </Droppable>
-                );
-              })}
-            </div>
-          </DragDropContext>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
