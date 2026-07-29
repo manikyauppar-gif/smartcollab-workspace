@@ -1,21 +1,24 @@
-datasource db {
-  provider = "postgresql"
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-enum Status {
-  TODO
-  IN_PROGRESS
-  DONE
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("EDITOR") // ADMIN, EDITOR, VIEWER
+  createdAt DateTime @default(now())
 }
 
 model Task {
   id        String   @id @default(uuid())
   title     String
-  status    Status   @default(TODO)
+  status    String   @default("TODO") // TODO, IN_PROGRESS, DONE
   assignee  String   @default("Manikya")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
