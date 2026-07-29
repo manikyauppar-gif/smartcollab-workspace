@@ -3,9 +3,13 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
 const app = express();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'smartcollab_super_secret_key_2026';
 
 app.use(cors());
 app.use(express.json());
@@ -41,16 +45,84 @@ io.on('connection', (socket) => {
   });
 });
 
+// --- AUTHENTICATION ROUTES ---
+
+// 1. User Registration
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+        role: role || 'EDITOR'
+      }
+    });
+
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// 2. User Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role, name: user.name },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
 // --- REST API ROUTES CONNECTED TO NEON POSTGRESQL ---
 
-// 1. Fetch All Tasks
+// Fetch All Tasks
 app.get('/api/tasks', async (req, res) => {
   try {
     const tasks = await prisma.task.findMany({
       orderBy: { createdAt: 'asc' }
     });
 
-    // If database is empty, seed initial tasks so screen isn't blank
     if (tasks.length === 0) {
       await prisma.task.createMany({
         data: [
@@ -70,7 +142,7 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-// 2. Create New Task
+// Create New Task
 app.post('/api/tasks', async (req, res) => {
   try {
     const { title, status, assignee } = req.body;
@@ -88,7 +160,7 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-// 3. Update Task Status
+// Update Task Status
 app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
