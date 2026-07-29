@@ -12,11 +12,8 @@ const socket = io(BACKEND_URL, {
 });
 
 export default function App() {
-  // Auth & User State
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('smartcollab_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  // Always default user to null on initial load so login screen appears
+  const [user, setUser] = useState(null);
   const [token, setToken] = useState(() => localStorage.getItem('smartcollab_token') || '');
   const [isRegistering, setIsRegistering] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -37,6 +34,18 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newAssignee, setNewAssignee] = useState('Manikya');
+
+  // Load saved session on mount if available
+  useEffect(() => {
+    const saved = localStorage.getItem('smartcollab_user');
+    if (saved) {
+      try {
+        setUser(JSON.parse(saved));
+      } catch (e) {
+        localStorage.removeItem('smartcollab_user');
+      }
+    }
+  }, []);
 
   // Fetch initial tasks & subscribe to Socket events
   useEffect(() => {
@@ -92,7 +101,7 @@ export default function App() {
       setToken(data.token);
       localStorage.setItem('smartcollab_user', JSON.stringify(data.user));
       localStorage.setItem('smartcollab_token', data.token);
-      setToast(`Welcome back, ${data.user.name}! (${data.user.role})`);
+      setToast(`Welcome, ${data.user.name}! (${data.user.role})`);
       setTimeout(() => setToast(null), 3000);
     } catch (err) {
       setAuthError(err.message);
@@ -121,24 +130,21 @@ export default function App() {
 
     const newStatus = destination.droppableId;
 
-    // 1. Optimistic local update
     setTasks(prev => prev.map(t => t.id === draggableId ? { ...t, status: newStatus } : t));
     setToast(`Task moved to ${newStatus.replace('_', ' ')}!`);
     setTimeout(() => setToast(null), 3000);
 
-    // 2. Persist update to Database
     fetch(`${BACKEND_URL}/api/tasks/${draggableId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
     }).catch(err => console.error("Error updating task status:", err));
 
-    // 3. Broadcast real-time change via WebSockets
     socket.emit('task_moved', { 
       workspaceId: 'main-ws', 
       taskId: draggableId, 
       newStatus, 
-      updatedBy: user?.name || 'Manikya' 
+      updatedBy: user?.name || 'User' 
     });
   };
 
